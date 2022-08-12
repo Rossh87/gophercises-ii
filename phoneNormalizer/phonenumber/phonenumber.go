@@ -1,19 +1,19 @@
 package phonenumber
 
 import (
+	"bytes"
 	"log"
-	"strconv"
 )
 
-type DB interface {
+type db interface {
 	GetRecords() ([]PhoneRecord, error)
 	Update(id int, value string) error
 	Delete(id int) error
 }
 
 type PhoneRecord struct {
-	id int
-	pn string
+	Id int
+	Pn string
 }
 
 type seenPn map[string]struct{}
@@ -26,51 +26,47 @@ type formatInstruction struct {
 }
 
 func formatOne(pn string) string {
-	var ret []int32
+	var buf bytes.Buffer
 
 	for _, rn := range pn {
-		_, err := strconv.ParseInt(string(rn), 10, 8)
-
-		if err != nil {
-			continue
+		if rn >= '0' && rn <= '9' {
+			buf.WriteRune(rn)
 		}
-
-		ret = append(ret, rn)
 	}
 
-	return string(ret)
+	return buf.String()
 }
 
-func getInstructions(pns []PhoneRecord) []formatInstruction {
+func getInstructions(Pns []PhoneRecord) []formatInstruction {
 	seen := make(seenPn)
 
 	var ret []formatInstruction
 
-	for _, record := range pns {
-		formatted := formatOne(record.pn)
+	for _, record := range Pns {
+		formatted := formatOne(record.Pn)
 
 		if _, ok := seen[formatted]; ok {
 			// we've already seen this, so mark it for deletion
-			ret = append(ret, formatInstruction{id: record.id, formattedValue: formatted, shouldDelete: true, shouldUpdate: false})
+			ret = append(ret, formatInstruction{id: record.Id, formattedValue: formatted, shouldDelete: true, shouldUpdate: false})
 			continue
 		}
 
 		seen[formatted] = struct{}{}
 
-		if formatted == record.pn {
+		if formatted == record.Pn {
 			// no db ops needed--string is correctly formatted and not yet seen,
 			// so just add it to 'seen' for checking future entries
 			continue
 		}
 
 		// otherwise formatting resulted in a change, so add an update instruction to list
-		ret = append(ret, formatInstruction{id: record.id, formattedValue: formatted, shouldDelete: false, shouldUpdate: true})
+		ret = append(ret, formatInstruction{id: record.Id, formattedValue: formatted, shouldDelete: false, shouldUpdate: true})
 	}
 
 	return ret
 }
 
-func Format(db DB) {
+func Format(db db) {
 	records, err := db.GetRecords()
 
 	if err != nil {

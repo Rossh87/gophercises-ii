@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"context"
@@ -13,11 +13,32 @@ const (
 	host      = "localhost"
 	port      = "5432"
 	user      = "postgres"
-	dbname    = "gophercises_phonenumber"
+	dbname    = "phone_normalizer"
 	tablename = "phone_numbers"
 )
 
-func main() {
+type DB struct {
+	tablename string
+	conn      *pgx.Conn
+}
+
+func (db *DB) Init() {
+	conStr := fmt.Sprintf("postgres://%s@%s:%s/%s", user, host, port, dbname)
+
+	conn, err := pgx.Connect(context.Background(), conStr)
+
+	handleErr(err)
+
+	db.conn = conn
+
+	db.tablename = tablename
+}
+
+func (db *DB) Close() {
+	db.conn.Close(context.Background())
+}
+
+func (db *DB) Setup() {
 	rawdata := [][]interface{}{
 		{"123 456 7891"},
 		{"(123) 456 7892"},
@@ -33,39 +54,51 @@ func main() {
 
 	conn, err := pgx.Connect(context.Background(), conStr)
 
-	if err != nil {
-		log.Fatalf("%v", err)
-		os.Exit(1)
-	}
+	handleErr(err)
 
 	defer conn.Close(context.Background())
 
-	_, err = conn.Exec(context.Background(), "CREATE TABLE IF NOT EXISTS phone_numbers(id SERIAL NOT NULL PRIMARY KEY, number TEXT NOT NULL);")
+	err = reset(conn, tablename)
 
-	if err != nil {
-		log.Fatalf("%v", err)
-		os.Exit(1)
-	}
+	handleErr(err)
+
+	err = table(conn)
+
+	handleErr(err)
+
+	err = populate(conn, tablename, rawdata)
+
+	handleErr(err)
 }
 
-func setupTable(conn *pgx.Conn, data [][]interface{}) {
+func table(conn *pgx.Conn) error {
 	_, err := conn.Exec(context.Background(), "CREATE TABLE IF NOT EXISTS phone_numbers(id SERIAL NOT NULL PRIMARY KEY, number TEXT NOT NULL);")
 
-	if err != nil {
-		log.Fatalf("%v", err)
-		os.Exit(1)
-	}
+	return err
+}
 
-	// column name is number, table name is phone_numbers
-	conn.CopyFrom(
+func populate(conn *pgx.Conn, tablename string, data [][]interface{}) error {
+	_, err := conn.CopyFrom(
 		context.Background(),
-		pgx.Identifier{"phone_numbers"},
+		pgx.Identifier{tablename},
 		[]string{"number"},
 		pgx.CopyFromRows(data),
 	)
+
+	return err
 }
 
-func reset(conn *pgx.Conn) {
-	_, err := conn.Exec(context.Background(), "DROP TABLE $1;1", tablename)
+func reset(conn *pgx.Conn, tablename string) error {
+	cmd := fmt.Sprintf("DROP TABLE IF EXISTS %s", tablename)
 
+	_, err := conn.Exec(context.Background(), cmd)
+
+	return err
+}
+
+func handleErr(e error) {
+	if e != nil {
+		log.Fatalf("%v", e)
+		os.Exit(1)
+	}
 }

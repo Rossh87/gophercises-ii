@@ -1,6 +1,7 @@
 package phonenumber
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -8,18 +9,6 @@ import (
 type tc struct {
 	given []PhoneRecord
 	want  []formatInstruction
-}
-
-func runCases(cases []tc, t *testing.T) {
-	for _, c := range cases {
-		got := getInstructions(c.given)
-
-		for i, value := range got {
-			if !reflect.DeepEqual(value, c.want[i]) {
-				t.Fatalf("Input: %v\nWanted: %v\nGot: %v\n", c.given, c.want[i], value)
-			}
-		}
-	}
 }
 
 func TestGetInstructions(t *testing.T) {
@@ -34,5 +23,15 @@ func TestGetInstructions(t *testing.T) {
 		},
 	}
 
-	runCases(cases, t)
+	for cn, c := range cases {
+		t.Run(fmt.Sprintf("case: %d", cn), func(t *testing.T) {
+			got := getInstructions(c.given)
+
+			for i, value := range got {
+				if !reflect.DeepEqual(value, c.want[i]) {
+					t.Fatalf("Input: %v\nWanted: %v\nGot: %v\n", c.given, c.want[i], value)
+				}
+			}
+		})
+	}
 }
