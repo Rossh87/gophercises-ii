@@ -1,55 +1,53 @@
-package deck
+package blackjack
 
-type CardValue int
-
-const (
-	Ace CardValue = iota
-	Deuce
-	Three
-	Four
-	Five
-	Six
-	Seven
-	Eight
-	Nine
-	Ten
-	Jack
-	Queen
-	King
-	Joker
+import (
+	"math/rand"
+	"time"
 )
 
-func (s CardValue) Print() string {
-	return []string{"Ace", "Deuce", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Jack", "Queen", "King", "Joker"}[s]
+type Deck struct {
+	head  int
+	cards []Card
+	empty bool
 }
 
-type Suit int
-
-const (
-	Spades Suit = iota
-	Diamonds
-	Clubs
-	Hearts
-	Red
-	Black
-)
-
-func (s Suit) Print() string {
-	return []string{"Spades", "Diamonds", "Clubs", "Hearts", "Red", "Black"}[s]
+func (d *Deck) Empty() bool {
+	return d.empty
 }
 
-type Card struct {
-	Suit  Suit
-	Value CardValue
+func (d *Deck) Deal() (*Card, error) {
+	if d.head == len(d.cards) {
+		panic("Attempting to deal from an empty deck")
+	}
+
+	c := d.cards[d.head]
+
+	d.head++
+
+	if d.head == len(d.cards) {
+		d.empty = true
+	}
+
+	return &c, nil
+}
+
+func (d *Deck) Shuffle() {
+	rand.Seed(time.Now().Unix())
+
+	rand.Shuffle(len(d.cards)-d.head, func(i, j int) {
+		offseti := i + d.head
+		offfsetj := j + d.head
+		d.cards[offseti], d.cards[offfsetj] = d.cards[offfsetj], d.cards[offseti]
+	})
 }
 
 type deckConf struct {
-	sort     func(d []Card) []Card
-	shuffle  bool
-	jokers   int
-	omitSuit []Suit
-	omitVal  []CardValue
-	decks    int
+	sort       func(d []Card) []Card
+	customSort bool
+	jokers     int
+	omitSuit   []Suit
+	omitVal    []CardValue
+	decks      int
 }
 
 type deckOpt func(conf *deckConf)
@@ -57,12 +55,7 @@ type deckOpt func(conf *deckConf)
 func WithSort(f func(d []Card) []Card) deckOpt {
 	return func(conf *deckConf) {
 		conf.sort = f
-	}
-}
-
-func WithShuffle(shuf bool) deckOpt {
-	return func(conf *deckConf) {
-		conf.shuffle = shuf
+		conf.customSort = true
 	}
 }
 
@@ -90,7 +83,7 @@ func WithDecks(decks int) deckOpt {
 	}
 }
 
-func New(opts ...deckOpt) []Card {
+func NewDeck(opts ...deckOpt) Deck {
 	conf := deckConf{
 		func(d []Card) []Card {
 			return d
@@ -117,11 +110,10 @@ func New(opts ...deckOpt) []Card {
 		omittedValues[v] = struct{}{}
 	}
 
-	var decks []Card
+	var combinedCards []Card
 
 	for dc := 0; dc < conf.decks; dc++ {
-		deck := []Card{}
-		omitted := 0
+		cards := []Card{}
 
 		for s := 0; s < 4; s++ {
 			for v := 0; v < 13; v++ {
@@ -129,16 +121,14 @@ func New(opts ...deckOpt) []Card {
 				value := CardValue(v)
 
 				if _, ok := omittedSuits[suit]; ok {
-					omitted++
 					continue
 				}
 
 				if _, ok := omittedValues[value]; ok {
-					omitted++
 					continue
 				}
 
-				deck = append(deck, Card{suit, value})
+				cards = append(cards, Card{suit, value})
 			}
 		}
 
@@ -151,11 +141,21 @@ func New(opts ...deckOpt) []Card {
 				suit = Black
 			}
 
-			deck = append(deck, Card{suit, Joker})
+			cards = append(cards, Card{suit, Joker})
 		}
 
-		decks = append(decks, deck...)
+		combinedCards = append(combinedCards, cards...)
 	}
 
-	return conf.sort(decks)
+	if conf.customSort {
+		combinedCards = conf.sort(combinedCards)
+	}
+
+	deck := Deck{
+		head:  0,
+		cards: combinedCards,
+		empty: false,
+	}
+
+	return deck
 }
