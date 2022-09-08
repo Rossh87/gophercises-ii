@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 )
 
@@ -17,16 +18,15 @@ func (bwr *BufferedWriter) Header() http.Header {
 	return bwr.headers
 }
 
-func (bwr *BufferedWriter) Write(b []byte) {
-	bwr.body.Write(b)
+func (bwr *BufferedWriter) Write(b []byte) (int, error) {
+	return bwr.body.Write(b)
 }
 
 func (bwr *BufferedWriter) WriteHeader(code int) {
 	bwr.status = code
 }
 
-func (bwr *BufferedWriter) Send(r http.ResponseWriter) {
-
+func (bwr *BufferedWriter) Send(r http.ResponseWriter) error {
 	// aim is to copy FROM receiver object TO the responsewriter
 	// param.
 
@@ -44,6 +44,18 @@ func (bwr *BufferedWriter) Send(r http.ResponseWriter) {
 	// update status code with current MW status, if any
 	r.WriteHeader(bwr.status)
 
+	bodyBytes := bwr.body.Bytes()
+	contentLen := fmt.Sprintf("%d", len(bodyBytes))
+	dest.Set("Content-Length", contentLen)
+
+	// copy body
+	_, err := r.Write(bodyBytes)
+
+	if flusher, ok := r.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	return err
 }
 
 func NewBufferedWriter() *BufferedWriter {
@@ -53,5 +65,19 @@ func NewBufferedWriter() *BufferedWriter {
 		buf,
 		make(http.Header),
 		200,
+	}
+}
+
+func Compose(mws ...Middleware) Middleware {
+	return func(final http.Handler) http.Handler {
+		ln := len(mws)
+
+		currHandler := final
+
+		for i := ln - 1; i >= 0; i-- {
+			currHandler = mws[i](currHandler)
+		}
+
+		return currHandler
 	}
 }
