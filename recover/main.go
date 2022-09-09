@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -25,8 +24,8 @@ func main() {
 	mux.HandleFunc("/panic-after/", panicAfterDemo)
 	mux.HandleFunc("/", greet)
 
-	withRecovery := middleware.Compose(panicRecover)
-	withDev := middleware.Compose(requireDev)
+	withRecovery := middleware.Compose(middleware.PanicRecover)
+	withDev := middleware.Compose(middleware.RequireDev)
 
 	mux.Handle("/source/", withDev(http.HandlerFunc(renderSource)))
 
@@ -43,62 +42,6 @@ func shiftPath(path string) (head, tail string) {
 	}
 
 	return path[1:i], path[i:]
-}
-
-type stackPath struct {
-	lineNo int
-	path   string
-}
-
-func parseStackPath(stack string) stackPath {
-	fields := strings.Fields(stack)
-	data := strings.Split(fields[0], ":")
-
-	ln, err := strconv.ParseInt(data[1], 10, 32)
-
-	if err != nil {
-		panic(err)
-	}
-
-	return stackPath{
-		int(ln),
-		data[0],
-	}
-}
-
-func formatStack(stack string) string {
-	line := strings.Builder{}
-	out := strings.Builder{}
-
-	for _, ch := range stack {
-		if ch == '\n' {
-			maybePath := strings.Trim(line.String(), " \t")
-
-			if maybePath[0] == '/' {
-				stackPath := parseStackPath(maybePath)
-				maybePath = fmt.Sprintf("\t<a href=\"/source%s?lineNumber=%d\">%s</a>", stackPath.path, stackPath.lineNo, maybePath)
-			}
-
-			out.Write([]byte(maybePath + "\n"))
-			line.Reset()
-		} else {
-			line.WriteRune(ch)
-		}
-	}
-
-	if line.Len() > 0 {
-		maybePath := strings.Trim(line.String(), " \t")
-
-		if maybePath[0] == '/' {
-			stackPath := parseStackPath(maybePath)
-			maybePath = fmt.Sprintf("<a href=\"/source/%s?lineNumber=%d\">%s</a>", stackPath.path, stackPath.lineNo, maybePath)
-		}
-
-		out.Write([]byte(maybePath))
-		line.Reset()
-	}
-
-	return out.String()
 }
 
 func renderSource(rw http.ResponseWriter, r *http.Request) {
@@ -143,67 +86,6 @@ func renderSource(rw http.ResponseWriter, r *http.Request) {
 	tpl = strings.Replace(tpl, "[[highlighted]]", highlighted.String(), 1)
 
 	rw.Write([]byte(tpl))
-}
-
-// It is important that this handler be at the bottom of the middleware stack:
-// otherwise, subsequent middlewares could overwrite the error message and/or
-// status code in the buffered writer.
-func panicRecover(next http.Handler) http.Handler {
-	h := func(rw http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if r := recover(); r != nil {
-				rw.WriteHeader(http.StatusInternalServerError)
-
-				var panicMsg string
-
-				if err, ok := r.(error); ok {
-					panicMsg = err.Error()
-				} else {
-					panicMsg = "Panic: unknown reason"
-				}
-
-				log.Print(panicMsg)
-
-				stack := string(debug.Stack())
-
-				log.Print(stack)
-
-				var usrMsg bytes.Buffer
-
-				genv, _ := os.LookupEnv("GO_ENV")
-
-				if genv == "development" {
-					formattedStack := formatStack(stack)
-					usrMsg.Write([]byte(fmt.Sprintf("<h1>Panic: %s</h1></br><pre>%s</pre>", panicMsg, formattedStack)))
-				} else {
-					usrMsg.Write([]byte("something went wrong!"))
-				}
-
-				rw.Write(usrMsg.Bytes())
-			}
-		}()
-
-		bufWriter := middleware.NewBufferedWriter()
-
-		next.ServeHTTP(bufWriter, r)
-
-		bufWriter.Send(rw)
-	}
-
-	return http.HandlerFunc(h)
-}
-
-func requireDev(next http.Handler) http.Handler {
-	h := func(rw http.ResponseWriter, r *http.Request) {
-		if genv, _ := os.LookupEnv("GO_ENV"); genv != "development" {
-			http.Error(rw, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		next.ServeHTTP(rw, r)
-	}
-
-	return http.HandlerFunc(h)
 }
 
 func fPanic() {
